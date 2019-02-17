@@ -31,25 +31,25 @@ func main() {
 		go GetPackageLastVersion(pkg, result)
 	}
 
+	pkgLen := len(packages)
 	count := 0
 	for r := range result {
-		count++
 		diff := VersionDiffOrder(r.Pkg.Version, r.Version)
 
-		if diff > 2 || diff == -1 || (*majorOnly && diff != 0) {
-			continue
+		if diff < 3 && diff != -1 && (!*majorOnly || diff == 0) {
+			fmt.Print("(", (count * 100 / pkgLen), "%) ")
+			if diff == 0 {
+				c := color.New(color.FgRed)
+				c.Print("(Major)")
+			} else if diff > 0 {
+				c := color.New(color.FgYellow)
+				c.Print("(Minor)")
+			}
+			fmt.Println(" ", r.Pkg.Name, ": ", r.Pkg.Version, " -> ", r.Version)
 		}
 
-		if diff == 0 {
-			c := color.New(color.FgRed)
-			c.Print("(Major)")
-		} else if diff > 0 {
-			c := color.New(color.FgYellow)
-			c.Print("(Minor)")
-		}
-		fmt.Println(" ", r.Pkg.Name, ": ", r.Pkg.Version, " -> ", r.Version)
-
-		if count+1 == len(packages) {
+		count++
+		if count == pkgLen {
 			close(result)
 		}
 	}
