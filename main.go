@@ -15,6 +15,7 @@ import (
 func main() {
 	file := flag.String("file", "./requirements.txt", "requirements file path")
 	majorOnly := flag.Bool("major", false, "print major changes only")
+	pypiUrl := flag.String("pypi", "https://pypi.org/pypi/", "pypi url")
 	flag.Parse()
 
 	contentBytes, err := ioutil.ReadFile(*file)
@@ -28,16 +29,17 @@ func main() {
 	result := make(chan Result, 0)
 
 	for _, pkg := range packages {
-		go GetPackageLastVersion(pkg, result)
+		go GetPackageLastVersion(*pypiUrl, pkg, result)
 	}
 
 	pkgLen := len(packages)
 	count := 0
 	for r := range result {
+		count++
 		diff := VersionDiffOrder(r.Pkg.Version, r.Version)
-
 		if diff < 3 && diff != -1 && (!*majorOnly || diff == 0) {
-			fmt.Print("(", (count * 100 / pkgLen), "%) ")
+			fmt.Printf("%3d", (count * 100 / pkgLen))
+			fmt.Print("% ")
 			if diff == 0 {
 				c := color.New(color.FgRed)
 				c.Print("(Major)")
@@ -48,7 +50,6 @@ func main() {
 			fmt.Println(" ", r.Pkg.Name, ": ", r.Pkg.Version, " -> ", r.Version)
 		}
 
-		count++
 		if count == pkgLen {
 			close(result)
 		}
@@ -83,13 +84,17 @@ type PypiResponse struct {
 	Releases map[string]struct{} `json:"releases"`
 }
 
-func GetPackageLastVersion(pkg PackageVersion, result chan Result) {
-	resp, err := http.Get("https://pypi.org/pypi/" + pkg.Name + "/json")
+func GetPackageLastVersion(pypiUrl string, pkg PackageVersion, result chan Result) {
+	resp, err := http.Get(pypiUrl + pkg.Name + "/json")
 	if err != nil {
 		panic(err)
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
+
+	if resp.StatusCode == 404 {
+		result <- Result{pkg, "not found"}
+	}
 	if err != nil {
 		panic(err)
 	}
