@@ -27,7 +27,7 @@ func main() {
 	content := string(contentBytes[:])
 	packages := GetPackages(content)
 
-	wg := &sync.WaitGroup{}
+	wg := new(sync.WaitGroup)
 
 	for _, pkg := range packages {
 		wg.Add(1)
