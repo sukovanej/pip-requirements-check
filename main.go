@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/fatih/color"
 )
@@ -26,34 +27,26 @@ func main() {
 	content := string(contentBytes[:])
 	packages := GetPackages(content)
 
-	result := make(chan Result, 0)
+	wg := &sync.WaitGroup{}
 
 	for _, pkg := range packages {
-		go GetPackageLastVersion(*pypiUrl, pkg, result)
-	}
-
-	pkgLen := len(packages)
-	count := 0
-	for r := range result {
-		count++
-		diff := VersionDiffOrder(r.Pkg.Version, r.Version)
-		if diff < 3 && diff != -1 && (!*majorOnly || diff == 0) {
-			fmt.Printf("%3d", (count * 100 / pkgLen))
-			fmt.Print("% ")
-			if diff == 0 {
-				c := color.New(color.FgRed)
-				c.Print("(Major)")
-			} else if diff > 0 {
-				c := color.New(color.FgYellow)
-				c.Print("(Minor)")
+		wg.Add(1)
+		go GetPackageLastVersion(*pypiUrl, pkg, wg, func(r Result) {
+			diff := VersionDiffOrder(r.Pkg.Version, r.Version)
+			if diff < 3 && diff != -1 && (!*majorOnly || diff == 0) {
+				if diff == 0 {
+					c := color.New(color.FgRed)
+					c.Print("(Major)")
+				} else if diff > 0 {
+					c := color.New(color.FgYellow)
+					c.Print("(Minor)")
+				}
+				fmt.Println(" ", r.Pkg.Name, ": ", r.Pkg.Version, " -> ", r.Version)
 			}
-			fmt.Println(" ", r.Pkg.Name, ": ", r.Pkg.Version, " -> ", r.Version)
-		}
-
-		if count == pkgLen {
-			close(result)
-		}
+		})
 	}
+
+	wg.Wait()
 }
 
 type PackageVersion struct {
@@ -84,7 +77,7 @@ type PypiResponse struct {
 	Releases map[string]struct{} `json:"releases"`
 }
 
-func GetPackageLastVersion(pypiUrl string, pkg PackageVersion, result chan Result) {
+func GetPackageLastVersion(pypiUrl string, pkg PackageVersion, wg *sync.WaitGroup, callback func(Result)) {
 	resp, err := http.Get(pypiUrl + pkg.Name + "/json")
 	if err != nil {
 		panic(err)
@@ -93,7 +86,9 @@ func GetPackageLastVersion(pypiUrl string, pkg PackageVersion, result chan Resul
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if resp.StatusCode == 404 {
-		result <- Result{pkg, "not found"}
+		wg.Done()
+		callback(Result{pkg, "not found"})
+		return
 	}
 	if err != nil {
 		panic(err)
@@ -107,7 +102,8 @@ func GetPackageLastVersion(pypiUrl string, pkg PackageVersion, result chan Resul
 		}
 	}
 
-	result <- Result{pkg, str}
+	callback(Result{pkg, str})
+	wg.Done()
 }
 
 func IsGreaterVersion(v1, v2 string) bool {
